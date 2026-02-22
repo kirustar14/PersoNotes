@@ -30,7 +30,7 @@ Your app is live at `https://yourusername.github.io/mimicnotes`
 
 ## API Key
 
-Get one free at [console.anthropic.com](https://console.anthropic.com). Your key is stored only in your browser's `localStorage` and never sent anywhere except directly to Anthropic's API.
+Get a **free** Gemini API key at [aistudio.google.com](https://aistudio.google.com) → Get API Key. No credit card needed. Free tier: 1,500 requests/day. Your key is stored only in your browser's `localStorage` and never sent anywhere except directly to Google's API.
 
 ## Tech Stack
 
