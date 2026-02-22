@@ -766,26 +766,54 @@ async function analyzeStyle() {
   try {
     const parts = [
       ...state.photos.slice(0, 3).map(imgPart),
-      { text: `Analyze these handwritten notes. Return ONLY valid JSON (no markdown):
-{
-  "noteStyle": "bullet-heavy"|"paragraph-heavy"|"mixed"|"outline"|"cornell"|"mind-map",
-  "visualElements": ["diagrams","arrows","boxes","highlights","doodles","color-coding","symbols"],
-  "writingDensity": "sparse"|"moderate"|"dense",
-  "organizationPattern": "hierarchical"|"linear"|"clustered"|"flowing",
-  "detailLevel": "brief-keywords"|"short-phrases"|"full-sentences"|"detailed-paragraphs",
-  "analogyUsage": "none"|"occasional"|"frequent",
-  "abbreviations": "none"|"some"|"heavy",
-  "subjectHints": ["array of subjects this person likely studies based on content"],
-  "dominantTrait": "single most prominent characteristic",
-  "personalFlair": "one sentence describing their unique quirks"
-}` }
+      { text: `Look at these handwritten notes images and analyze the note-taking style.
+
+Respond with ONLY a JSON object. No explanation, no markdown fences, no extra text. Start your response with { and end with }.
+
+Pick one value for each field:
+- noteStyle: bullet-heavy OR paragraph-heavy OR mixed OR outline OR cornell OR mind-map
+- writingDensity: sparse OR moderate OR dense
+- organizationPattern: hierarchical OR linear OR clustered OR flowing
+- detailLevel: brief-keywords OR short-phrases OR full-sentences OR detailed-paragraphs
+- analogyUsage: none OR occasional OR frequent
+- abbreviations: none OR some OR heavy
+- visualElements: array of any that apply: diagrams, arrows, boxes, highlights, doodles, color-coding, symbols
+- subjectHints: array of likely subjects based on content visible
+- dominantTrait: one short phrase describing the most prominent style characteristic
+- personalFlair: one sentence describing unique quirks you notice
+
+JSON only:` }
     ];
 
-    const raw = await gemini(parts, 800);
-    const m = raw.match(/\{[\s\S]*\}/);
-    if (!m) throw new Error('No JSON');
+    const raw = await gemini(parts, 900);
+    console.log('Style raw response:', raw.slice(0, 300));
 
-    state.styleProfile = JSON.parse(m[0]);
+    // Try multiple extraction strategies
+    let parsed = null;
+    // Strategy 1: direct JSON
+    try { parsed = JSON.parse(raw.trim()); } catch {}
+    // Strategy 2: extract first { ... }
+    if (!parsed) {
+      const m = raw.match(/\{[\s\S]*\}/);
+      if (m) try { parsed = JSON.parse(m[0]); } catch {}
+    }
+    // Strategy 3: extract from code fence
+    if (!parsed) {
+      const m = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+      if (m) try { parsed = JSON.parse(m[1].trim()); } catch {}
+    }
+    // Strategy 4: fallback default profile
+    if (!parsed) {
+      console.warn('Could not parse JSON, using fallback profile. Raw:', raw);
+      parsed = {
+        noteStyle: 'mixed', writingDensity: 'moderate', organizationPattern: 'linear',
+        detailLevel: 'short-phrases', analogyUsage: 'occasional', abbreviations: 'some',
+        visualElements: [], subjectHints: [], dominantTrait: 'balanced note-taker',
+        personalFlair: 'Uses a clear, organized approach to note-taking.'
+      };
+    }
+
+    state.styleProfile = parsed;
 
     // Save style snapshot to history
     state.styleHistory.push({
