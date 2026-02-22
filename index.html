@@ -275,10 +275,6 @@ header{padding:14px 18px 12px 80px;border-bottom:2px solid var(--line);display:f
             </div>
           </div>
           <div class="nc" id="notesContent"></div>
-          <div class="related-sec" id="nextStudySec" style="display:none">
-            <h4>📌 Gemini Recommends — Study Next</h4>
-            <div class="chips" id="nextStudyChips" style="gap:7px;margin-top:6px"></div>
-          </div>
           <div class="related-sec" id="relSec" style="display:none">
             <h4>🔗 From Your Library — Related Notes</h4>
             <div id="relList"></div>
@@ -366,34 +362,9 @@ uz.addEventListener('dragleave',()=>uz.classList.remove('drag-over'));
 uz.addEventListener('drop',e=>{e.preventDefault();uz.classList.remove('drag-over');handleFiles(e.dataTransfer.files)});
 function handleFiles(files){
   Array.from(files).forEach(f=>{
-    // Accept image/* but also files with no type (HEIC from some browsers)
-    if(f.type&&!f.type.startsWith('image/'))return;
+    if(!f.type.startsWith('image/'))return;
     const r=new FileReader();
-    r.onload=e=>{
-      const raw=e.target.result;
-      // Normalize to JPEG via canvas so HEIC/AVIF always render in <img>
-      const tmpImg=new Image();
-      tmpImg.onload=()=>{
-        const cv=document.createElement('canvas');
-        cv.width=tmpImg.naturalWidth;cv.height=tmpImg.naturalHeight;
-        cv.getContext('2d').drawImage(tmpImg,0,0);
-        const jpegUrl=cv.toDataURL('image/jpeg',0.92);
-        // Use JPEG URL for display; keep original b64+mime for Gemini API (better quality)
-        const mime=f.type||'image/jpeg';
-        const origB64=raw.split(',')[1];
-        imgs.push({url:jpegUrl,b64:origB64,mime:mime==='image/heic'||mime==='image/heif'?'image/jpeg':mime});
-        renderPhotos();smark(1,'done');smark(2,'active');
-        if(imgs.length===1)setTimeout(analyzeStyle,700);
-      };
-      tmpImg.onerror=()=>{
-        // Fallback: use raw data URL as-is
-        const mime=f.type||'image/jpeg';
-        imgs.push({url:raw,b64:raw.split(',')[1],mime});
-        renderPhotos();smark(1,'done');smark(2,'active');
-        if(imgs.length===1)setTimeout(analyzeStyle,700);
-      };
-      tmpImg.src=raw;
-    };
+    r.onload=e=>{imgs.push({url:e.target.result,b64:e.target.result.split(',')[1],mime:f.type});renderPhotos();smark(1,'done');smark(2,'active');if(imgs.length===1)setTimeout(analyzeStyle,700);};
     r.readAsDataURL(f);
   });
 }
@@ -474,8 +445,6 @@ async function doGen(topic){
       {text:`You are a personalized AI note-taker that perfectly mimics a student's unique style.\n\nSTYLE PROFILE:\n${JSON.stringify(styleProfile||getProf().cumStyle||{},null,2)}\n\nSTYLE INSTRUCTIONS:\n${si}\n\n${ctx?'PRIOR NOTES CONTEXT (reference when relevant):\n'+ctx+'\n\n':''}TOPIC: "${topic}"\n\nCreate comprehensive notes that:\n1. Perfectly mimic this student's style\n2. Reference prior topics where relevant ("As you saw in [topic]…")\n3. Match exact detail level, structure, density\n4. Include ASCII diagrams if they use visuals\n5. Match abbreviations, analogy frequency, emphasis style\n6. End with "📌 Next to study:" suggestions\n\nUse markdown (#, ##, ###, **bold**, >, bullets). Write now:`}];
     const res=await callGemini(parts);
     curNoteText=res;curTopic=topic;renderNotes(topic,res);smark(3,'done');
-    // Parse "📌 Next to study:" block from Gemini's response and show as chips
-    extractNextStudy(res);
     const p=getProf();if(!p.topics)p.topics=[];if(!p.topics.includes(topic)){p.topics.push(topic);saveProf(p);}
     showRelated(topic);loadSugs();updateScore();
   }catch(e){console.error(e);toast('⚠ '+e.message);}
@@ -504,23 +473,9 @@ function renderNotes(topic,md){
   document.getElementById('notesOut').classList.add('on');
   document.getElementById('notesTitle').textContent=topic;
   document.getElementById('notesContent').innerHTML=md2html(md);
-  document.getElementById('nextStudySec').style.display='none';
-  document.getElementById('relSec').style.display='none';
 }
-function extractNextStudy(md){
-  const sec=document.getElementById('nextStudySec');
-  const chips=document.getElementById('nextStudyChips');
-  // Look for the 📌 Next to study section in the markdown
-  const match=md.match(/📌\s*Next to study[:\s*]+([\s\S]*?)(?:\n#{1,3}\s|\n\n\n|$)/i);
-  if(!match){sec.style.display='none';return;}
-  // Extract individual topics: lines starting with -, *, numbers, or plain text after colon
-  const block=match[1];
-  const items=[...block.matchAll(/(?:^[-*\d.]+\s*|\*\*)?([^:\n*_]+?)(?:\*\*)?(?:\s*[-–—:][^\n]*)?$/gm)]
-    .map(m=>m[1].trim()).filter(t=>t.length>1&&t.length<60&&!/^(and|or|to|the|a|an)$/i.test(t));
-  if(!items.length){sec.style.display='none';return;}
-  chips.innerHTML=items.map(t=>`<div class="chip gap" onclick="fillT('${t.replace(/'/g,"\\'")}');toast('Topic loaded ✓')" title="Click to study this">${t}</div>`).join('');
-  sec.style.display='block';
-}
+function md2html(md){
+function md2html(md){
   let h=md.replace(/^# (.+)$/gm,'<h1>$1</h1>').replace(/^## (.+)$/gm,'<h2>$1</h2>').replace(/^### (.+)$/gm,'<h3>$1</h3>')
     .replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>').replace(/\*(.+?)\*/g,'<em>$1</em>')
     .replace(/^> (.+)$/gm,'<blockquote>$1</blockquote>').replace(/`([^`]+)`/g,'<code>$1</code>')
@@ -549,9 +504,7 @@ function saveNote(){
   if(!curNoteText||!curTopic){toast('⚠ Generate notes first');return;}
   const notes=getNotes();
   notes.unshift({id:Date.now(),topic:curTopic,content:curNoteText,date:new Date().toLocaleDateString(),tags:[...curNoteText.matchAll(/^#+\s(.+)$/gm)].map(m=>m[1]).slice(0,3)});
-  saveNotes(notes);updateBadge();loadSugs();updateScore();
-  if(document.getElementById('insightsView').classList.contains('active'))renderInsights();
-  toast('✓ Saved to library!');
+  saveNotes(notes);updateBadge();loadSugs();toast('✓ Saved to library!');
 }
 function renderLib(){
   const notes=getNotes();const q=(document.getElementById('libSearch')?.value||'').toLowerCase();
